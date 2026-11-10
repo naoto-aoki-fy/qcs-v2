@@ -29,6 +29,11 @@ asynchronous execution failures are reported to standard error with a nonzero
 exit status. The program rejects insufficient free memory before allocation;
 allocation can still fail if available memory changes after the check.
 
+Host waits use blocking synchronization: `cudaDeviceScheduleBlockingSync` is set
+before device initialization for stream synchronization, and both timing events
+are created with `cudaEventBlockingSync`. Event timing remains enabled.
+The stream's `cudaStreamNonBlocking` flag controls implicit synchronization with
+the default stream independently of how the host waits.
 The stop event is synchronized before reading each timing result. Verification
 uses an asynchronous result copy followed by stream synchronization before the
 host reads the flag. Host copy buffers remain alive until stream work completes;

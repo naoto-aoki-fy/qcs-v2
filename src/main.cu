@@ -136,6 +136,8 @@ int main(int argc, char** argv) {
             }
         }
 
+        check(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync),
+              "enable blocking synchronization");
         check(cudaSetDevice(0), "select device 0");
         cudaDeviceProp properties{};
         check(cudaGetDeviceProperties(&properties, 0), "query device properties");
@@ -163,8 +165,10 @@ int main(int argc, char** argv) {
               "create execution stream");
         check(cudaMalloc(reinterpret_cast<void**>(&resources.state), bytes),
               "allocate state vector");
-        check(cudaEventCreate(&resources.start), "create start event");
-        check(cudaEventCreate(&resources.stop), "create stop event");
+        check(cudaEventCreateWithFlags(&resources.start, cudaEventBlockingSync),
+              "create start event");
+        check(cudaEventCreateWithFlags(&resources.stop, cudaEventBlockingSync),
+              "create stop event");
         if (shouldVerify) {
             check(cudaMalloc(reinterpret_cast<void**>(&resources.invalid),
                              sizeof(unsigned int)), "allocate verification flag");
