@@ -4,7 +4,7 @@
 #include <cmath>
 #include "indexing.hpp"
 
-__global__ void hadamard(double* stateReal, double* stateImag, 
+__global__ void hadamard(double* stateReal, double* stateImag,
                          Index pairs, unsigned int qubit) {
     const Index begin = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
     const Index stride = static_cast<Index>(gridDim.x) * blockDim.x;
