@@ -20,8 +20,9 @@ int main() {
             for (unsigned block : {64u, 128u, 256u}) {
                 for (unsigned cap : {1u, 3u, 2147483647u}) {
                     for (unsigned q = 0; q < n; ++q) {
-                        for (bool shuffle : {false, true}) {
-                            if (shuffle && q != 0) continue;
+                        for (bool optimized : {false, true}) {
+                            if (optimized && q != 0) continue;
+                            const bool shuffle = optimized && n >= 5;
                             check(cudaMemcpy(state, input.data(), size * sizeof(double2), cudaMemcpyHostToDevice));
                             if (shuffle)
                                 hadamardQubitZero<<<gridFor(size, block, cap), block>>>(state, size);
@@ -29,12 +30,12 @@ int main() {
                                 hadamard<<<gridFor(size / 2, block, cap), block>>>(state, size / 2, q);
                             check(cudaGetLastError());
                             check(cudaMemcpy(result.data(), state, size * sizeof(double2), cudaMemcpyDeviceToHost));
-                            if (!shuffle && q == 0) baseline = result;
+                            if (!optimized && q == 0) baseline = result;
                             // Independent amplitude-based reference checks both signs and imaginary parts.
                             for (Index i = 0; i < size; ++i) {
-                                if (shuffle && (std::abs(result[i].x - baseline[i].x) > 1e-12 ||
+                                if (optimized && (std::abs(result[i].x - baseline[i].x) > 1e-12 ||
                                                 std::abs(result[i].y - baseline[i].y) > 1e-12))
-                                    throw std::runtime_error("Shuffle/baseline mismatch");
+                                    throw std::runtime_error("Optimized/baseline mismatch");
                                 if (!std::isfinite(result[i].x) || !std::isfinite(result[i].y))
                                     throw std::runtime_error("Non-finite Hadamard output");
                                 const Index bit = Index{1} << q;

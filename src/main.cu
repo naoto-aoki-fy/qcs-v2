@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
             }
             for (unsigned int gate = 0; gate < qubits; ++gate) {
                 const unsigned int qubit = targetQubit(gate, qubits, qubitOrder);
-                if (qubit == 0 && !baselineQubitZero) {
+                if (qubit == 0 && !baselineQubitZero && qubits >= 5) {
                     hadamardQubitZero<<<q0Grid, blockSize, 0, resources.stream>>>(
                         resources.state, amplitudes);
                 } else {

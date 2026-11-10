@@ -180,18 +180,17 @@ when these results support it.
 
 ## Qubit-zero warp shuffle
 
-By default, q=0 uses `hadamardQubitZero`: each thread loads and stores one
+By default, q=0 with N>=5 uses `hadamardQubitZero`: each thread loads and stores one
 contiguous `double2` amplitude. Two FP64 `__shfl_xor_sync` operations with lane
 mask 1 exchange real and imaginary components. Even lanes write `(a+b)*scale`;
 odd lanes write `(a-b)*scale`, with the same FP64 scale as the pair kernel.
-Targets q>=1 retain the existing kernel and launch dimensions.
+Targets q>=1 and states with N<5 use the pair kernel and its launch dimensions.
 
 Index and stride arithmetic remain 64-bit. The q=0 grid is sized by amplitudes
 rather than pairs, subject to the same grid cap. Supported blocks are multiples
-of 32. Each warp iterates uniformly and ballots valid indices before branching;
-the resulting participation mask includes only valid lanes. Even state sizes
-and warp-aligned strides ensure each active lane's XOR partner participates,
-including 2-, 4-, 8-, and 16-amplitude states. Both shuffle operations complete
+of 32. For N>=5, the amplitude count is also a multiple of 32. Each warp
+iterates uniformly with all 32 lanes in bounds, so both shuffles use the fixed
+participation mask `0xffffffffu` without a ballot or per-lane bounds branch. Both shuffle operations complete
 before writes, so each pair has loaded its inputs before either output can
 overwrite them. Each thread owns a unique amplitude; no additional buffer or
 cross-warp synchronization is needed.
@@ -210,7 +209,8 @@ make test-cuda
 Alternate baseline and shuffle runs and compare medians and spread for q=0
 and q>=1; repeat with descending order and each supported block size. Tests
 compare both q=0 kernels directly as well as against the CPU reference, covering
-partial warps and repeated grid-stride iterations. Run the CUDA tests under
+the N<5 pair fallback, the N=5 full-warp boundary, and repeated grid-stride
+iterations. Run the CUDA tests under
 compute-sanitizer on a GPU as well.
 
 No CUDA compiler or NVIDIA GPU tooling is available in the implementation
