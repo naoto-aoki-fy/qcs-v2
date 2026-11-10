@@ -18,14 +18,23 @@ arithmetic use unsigned 64-bit integers. There is no gate fusion or grid-stride
 loop. Large launches use a two-dimensional grid when necessary; boundary threads
 in a partially filled grid return immediately.
 
-CUDA events bracket only the sequence of Hadamard launches in the default
-stream. Allocation, zeroing, initialization, and optional verification precede
+All initialization, Hadamard launches, timing events, and optional verification
+use one explicit stream created with `cudaStreamNonBlocking`. Stream ordering
+ensures initialization completes before the gates without a device-wide barrier.
+CUDA events bracket only the sequence of Hadamard launches in this stream. Allocation, zeroing, initialization, and optional verification precede
 or follow this interval. Each reported measurement is one circuit pass, without warmup or averaging;
 one timing line is printed per sample, including its index and the total count. As with CUDA event timing generally, any GPU idle gaps between
 launches within that interval are included. API failures, launch failures, and
 asynchronous execution failures are reported to standard error with a nonzero
 exit status. The program rejects insufficient free memory before allocation;
 allocation can still fail if available memory changes after the check.
+
+The stop event is synchronized before reading each timing result. Verification
+uses an asynchronous result copy followed by stream synchronization before the
+host reads the flag. Host copy buffers remain alive until stream work completes;
+these pageable buffers do not guarantee transfer overlap. Cleanup waits for the
+stream before releasing allocations and destroys the stream on both success and
+error paths.
 
 With `--verify`, a separate kernel checks every final amplitude after each sample against
 `2^(-N/2) + 0i`, using a relative tolerance of `1e-12`, and rejects non-finite

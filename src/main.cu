@@ -22,6 +22,7 @@ void check(cudaError_t result, const char* operation) {
 }
 
 struct Resources {
+    cudaStream_t stream = nullptr;
     double2* state = nullptr;
     unsigned int* invalid = nullptr;
     cudaEvent_t start = nullptr;
@@ -29,13 +30,16 @@ struct Resources {
 
     // Explicit checked cleanup on success; best-effort cleanup during unwinding.
     ~Resources() {
+        if (stream) cudaStreamSynchronize(stream);
         if (stop) cudaEventDestroy(stop);
         if (start) cudaEventDestroy(start);
         if (invalid) cudaFree(invalid);
         if (state) cudaFree(state);
+        if (stream) cudaStreamDestroy(stream);
     }
 
     void release() {
+        check(cudaStreamSynchronize(stream), "complete stream work");
         check(cudaEventDestroy(stop), "destroy stop event");
         stop = nullptr;
         check(cudaEventDestroy(start), "destroy start event");
@@ -46,6 +50,8 @@ struct Resources {
         }
         check(cudaFree(state), "free state vector");
         state = nullptr;
+        check(cudaStreamDestroy(stream), "destroy stream");
+        stream = nullptr;
     }
 };
 
@@ -150,7 +156,11 @@ int main(int argc, char** argv) {
         }
         const Index pairs = amplitudes / 2;
         const dim3 grid = gridFor(pairs, properties);
+        const double2 one = make_double2(1.0, 0.0);
+        unsigned int invalid = 0;
         Resources resources;
+        check(cudaStreamCreateWithFlags(&resources.stream, cudaStreamNonBlocking),
+              "create execution stream");
         check(cudaMalloc(reinterpret_cast<void**>(&resources.state), bytes),
               "allocate state vector");
         check(cudaEventCreate(&resources.start), "create start event");
@@ -160,33 +170,33 @@ int main(int argc, char** argv) {
                              sizeof(unsigned int)), "allocate verification flag");
         }
         for (unsigned int sample = 0; sample < repetitions; ++sample) {
-            check(cudaMemset(resources.state, 0, bytes), "zero state vector");
-            const double2 one = make_double2(1.0, 0.0);
-            check(cudaMemcpy(resources.state, &one, sizeof(one), cudaMemcpyHostToDevice),
+            check(cudaMemsetAsync(resources.state, 0, bytes, resources.stream), "zero state vector");
+            check(cudaMemcpyAsync(resources.state, &one, sizeof(one),
+                                  cudaMemcpyHostToDevice, resources.stream),
                   "initialize amplitude zero");
-            check(cudaDeviceSynchronize(), "finish initialization");
 
-            check(cudaEventRecord(resources.start), "record start event");
+            check(cudaEventRecord(resources.start, resources.stream), "record start event");
             for (unsigned int qubit = 0; qubit < qubits; ++qubit) {
-                hadamard<<<grid, kBlockSize>>>(resources.state, pairs, qubit);
+                hadamard<<<grid, kBlockSize, 0, resources.stream>>>(resources.state, pairs, qubit);
                 check(cudaGetLastError(), "launch Hadamard kernel");
             }
-            check(cudaEventRecord(resources.stop), "record stop event");
+            check(cudaEventRecord(resources.stop, resources.stream), "record stop event");
             check(cudaEventSynchronize(resources.stop), "complete Hadamard kernels");
             float milliseconds = 0.0f;
             check(cudaEventElapsedTime(&milliseconds, resources.start, resources.stop),
                   "measure elapsed GPU time");
 
             if (shouldVerify) {
-                check(cudaMemset(resources.invalid, 0, sizeof(unsigned int)),
+                check(cudaMemsetAsync(resources.invalid, 0, sizeof(unsigned int),
+                                      resources.stream),
                       "reset verification flag");
                 const double expected = std::exp2(-0.5 * qubits);
-                verify<<<grid, kBlockSize>>>(resources.state, pairs, expected,
+                verify<<<grid, kBlockSize, 0, resources.stream>>>(resources.state, pairs, expected,
                                             resources.invalid);
                 check(cudaGetLastError(), "launch verification kernel");
-                unsigned int invalid = 0;
-                check(cudaMemcpy(&invalid, resources.invalid, sizeof(invalid),
-                                 cudaMemcpyDeviceToHost), "read verification result");
+                check(cudaMemcpyAsync(&invalid, resources.invalid, sizeof(invalid),
+                                      cudaMemcpyDeviceToHost, resources.stream), "read verification result");
+                check(cudaStreamSynchronize(resources.stream), "complete verification");
                 if (invalid) throw std::runtime_error("State verification failed");
             }
             std::cout << "Sample " << (sample + 1) << "/" << repetitions
