@@ -1,6 +1,7 @@
 # CUDA state vector simulator
 
-Single-GPU CUDA C++ simulator using FP64 complex amplitudes. Defaults to 33
+Single-GPU CUDA C++ simulator using separate FP64 real and imaginary buffers
+(SoA), totaling 16 bytes per complex amplitude. Defaults to 33
 qubits initialized to the all-zero computational basis state, then applies one
 Hadamard gate per qubit in ascending order (0 through N−1) by default.
 Use `--qubit-order descending` to apply gates from N−1 down to 0.

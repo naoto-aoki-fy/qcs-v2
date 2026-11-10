@@ -24,8 +24,13 @@ The upper input bound prevents overflow of the amplitude count and byte count;
 actual feasibility is limited by available memory on CUDA device 0. No other GPU
 is used, and no cuStateVec dependency is present.
 
-Each complex amplitude is a `double2` (16 bytes). The initial state is
-amplitude 1 at index zero and 0 everywhere else. Each Hadamard remains an
+The state uses a Structure of Arrays (SoA) layout: two separate contiguous GPU
+allocations, `double* stateReal` and `double* stateImag`, each containing 2^N
+FP64 elements. Matching indices form one complex amplitude, so total state
+storage remains 16 bytes per amplitude. The memory-capacity check includes both
+buffers and the optional verification flag. Both buffers are zeroed before each
+sample, then `stateReal[0]` is set to 1.0. Both allocations are released on
+success and on error, including failure of the second allocation. Each Hadamard remains an
 independent kernel. All launches use scalar X grid and block sizes. The default
 block size remains 64; `--block-size 128` and `--block-size 256` allow measurement
 without rebuilding. No block size is claimed to be faster without device data.
@@ -47,9 +52,10 @@ and 2p+1. This source change may reduce address computation, but generated
 instructions and measurements are needed to establish any benefit. The loop can
 also add overhead; this is not a measured speedup. Target specialization and a
 qubit-zero shuffle kernel are deferred pending instruction and transaction data.
-The double2 layout and FP64 arithmetic are preserved. For qubit zero, each of
-the two warp load streams accesses alternating complex elements; higher target
-bits permit more contiguous accesses within each stream. Cache behavior may
+FP64 arithmetic is preserved for both real and imaginary components. For qubit
+zero, each component buffer has two warp load streams accessing alternating
+FP64 elements; higher target bits permit more contiguous accesses within each
+stream. The SoA refactor has no measured performance improvement. Cache behavior may
 reduce the cost of overlapping memory sectors, so source stride alone does not
 establish actual DRAM traffic.
 

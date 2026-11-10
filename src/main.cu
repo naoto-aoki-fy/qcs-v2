@@ -12,7 +12,7 @@
 #include <vector>
 
 constexpr unsigned int kBlockSize = 64;
-static_assert(sizeof(double2) == 16, "Expected FP64 complex storage");
+static_assert(2 * sizeof(double) == 16, "Expected FP64 complex storage");
 static_assert(sizeof(std::size_t) == 8, "A 64-bit host is required");
 
 void check(cudaError_t result, const char* operation) {
@@ -24,7 +24,8 @@ void check(cudaError_t result, const char* operation) {
 
 struct Resources {
     cudaStream_t stream = nullptr;
-    double2* state = nullptr;
+    double* stateReal = nullptr;
+    double* stateImag = nullptr;
     unsigned int* invalid = nullptr;
     cudaEvent_t start = nullptr;
     cudaEvent_t stop = nullptr;
@@ -39,7 +40,8 @@ struct Resources {
         if (stop) cudaEventDestroy(stop);
         if (start) cudaEventDestroy(start);
         if (invalid) cudaFree(invalid);
-        if (state) cudaFree(state);
+        if (stateImag) cudaFree(stateImag);
+        if (stateReal) cudaFree(stateReal);
         if (stream) cudaStreamDestroy(stream);
     }
 
@@ -58,8 +60,10 @@ struct Resources {
             check(cudaFree(invalid), "free verification flag");
             invalid = nullptr;
         }
-        check(cudaFree(state), "free state vector");
-        state = nullptr;
+        check(cudaFree(stateImag), "free imaginary state vector");
+        stateImag = nullptr;
+        check(cudaFree(stateReal), "free real state vector");
+        stateReal = nullptr;
         check(cudaStreamDestroy(stream), "destroy stream");
         stream = nullptr;
     }
@@ -144,7 +148,8 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Device cannot launch requested block size");
         }
         const Index amplitudes = Index{1} << qubits;
-        const std::size_t bytes = amplitudes * sizeof(double2);
+        const std::size_t componentBytes = amplitudes * sizeof(double);
+        const std::size_t bytes = 2 * componentBytes;
         const std::size_t extraBytes = shouldVerify ? sizeof(unsigned int) : 0;
         std::size_t freeBytes = 0;
         std::size_t totalBytes = 0;
@@ -158,13 +163,15 @@ int main(int argc, char** argv) {
         const unsigned int deviceLimit = static_cast<unsigned int>(properties.maxGridSize[0]);
         const unsigned int grid = gridFor(pairs, blockSize,
             maxBlocks && maxBlocks < deviceLimit ? maxBlocks : deviceLimit);
-        const double2 one = make_double2(1.0, 0.0);
+        const double one = 1.0;
         unsigned int invalid = 0;
         Resources resources;
         check(cudaStreamCreateWithFlags(&resources.stream, cudaStreamNonBlocking),
               "create execution stream");
-        check(cudaMalloc(reinterpret_cast<void**>(&resources.state), bytes),
-              "allocate state vector");
+        check(cudaMalloc(reinterpret_cast<void**>(&resources.stateReal), componentBytes),
+              "allocate real state vector");
+        check(cudaMalloc(reinterpret_cast<void**>(&resources.stateImag), componentBytes),
+              "allocate imaginary state vector");
         check(cudaEventCreateWithFlags(&resources.start, cudaEventBlockingSync),
               "create start event");
         check(cudaEventCreateWithFlags(&resources.stop, cudaEventBlockingSync),
@@ -181,8 +188,11 @@ int main(int argc, char** argv) {
                              sizeof(unsigned int)), "allocate verification flag");
         }
         for (Index sample = 0; sample < static_cast<Index>(warmup) + repetitions; ++sample) {
-            check(cudaMemsetAsync(resources.state, 0, bytes, resources.stream), "zero state vector");
-            check(cudaMemcpyAsync(resources.state, &one, sizeof(one),
+            check(cudaMemsetAsync(resources.stateReal, 0, componentBytes, resources.stream),
+                  "zero real state vector");
+            check(cudaMemsetAsync(resources.stateImag, 0, componentBytes, resources.stream),
+                  "zero imaginary state vector");
+            check(cudaMemcpyAsync(resources.stateReal, &one, sizeof(one),
                                   cudaMemcpyHostToDevice, resources.stream),
                   "initialize amplitude zero");
 
@@ -193,7 +203,8 @@ int main(int argc, char** argv) {
             }
             for (unsigned int gate = 0; gate < qubits; ++gate) {
                 const unsigned int qubit = targetQubit(gate, qubits, qubitOrder);
-                hadamard<<<grid, blockSize, 0, resources.stream>>>(resources.state, pairs, qubit);
+                hadamard<<<grid, blockSize, 0, resources.stream>>>(
+                    resources.stateReal, resources.stateImag, pairs, qubit);
                 check(cudaGetLastError(), "launch Hadamard kernel");
                 if (timeGates) {
                     check(cudaEventRecord(resources.gateEvents[gate + 1], resources.stream),
@@ -211,8 +222,8 @@ int main(int argc, char** argv) {
                                       resources.stream),
                       "reset verification flag");
                 const double expected = std::exp2(-0.5 * qubits);
-                verify<<<grid, blockSize, 0, resources.stream>>>(resources.state, pairs, expected,
-                                            resources.invalid);
+                verify<<<grid, blockSize, 0, resources.stream>>>(
+                    resources.stateReal, resources.stateImag, pairs, expected, resources.invalid);
                 check(cudaGetLastError(), "launch verification kernel");
                 check(cudaMemcpyAsync(&invalid, resources.invalid, sizeof(invalid),
                                       cudaMemcpyDeviceToHost, resources.stream), "read verification result");
