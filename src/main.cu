@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -93,12 +94,29 @@ dim3 gridFor(Index pairs, const cudaDeviceProp& properties) {
 int main(int argc, char** argv) {
     try {
         unsigned int qubits = 33;
+        unsigned int repetitions = 128;
+        bool repetitionsProvided = false;
         bool shouldVerify = false;
         bool countProvided = false;
         for (int i = 1; i < argc; ++i) {
             const std::string argument(argv[i]);
             if (argument == "--verify" && !shouldVerify) {
                 shouldVerify = true;
+            } else if (argument == "--repetitions" && !repetitionsProvided) {
+                if (++i >= argc) {
+                    throw std::runtime_error("--repetitions requires a positive integer");
+                }
+                const std::string count(argv[i]);
+                if (count.empty() ||
+                    count.find_first_not_of("0123456789") != std::string::npos) {
+                    throw std::runtime_error("--repetitions requires a positive integer");
+                }
+                const unsigned long long value = std::stoull(count);
+                if (value < 1 || value > std::numeric_limits<unsigned int>::max()) {
+                    throw std::runtime_error("Repetition count is out of range");
+                }
+                repetitions = static_cast<unsigned int>(value);
+                repetitionsProvided = true;
             } else if (!countProvided && !argument.empty() &&
                        argument.find_first_not_of("0123456789") == std::string::npos) {
                 const unsigned long long value = std::stoull(argument);
@@ -108,7 +126,7 @@ int main(int argc, char** argv) {
                 qubits = static_cast<unsigned int>(value);
                 countProvided = true;
             } else {
-                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--verify]");
+                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--verify]");
             }
         }
 
@@ -135,42 +153,47 @@ int main(int argc, char** argv) {
         Resources resources;
         check(cudaMalloc(reinterpret_cast<void**>(&resources.state), bytes),
               "allocate state vector");
-        check(cudaMemset(resources.state, 0, bytes), "zero state vector");
-        const double2 one = make_double2(1.0, 0.0);
-        check(cudaMemcpy(resources.state, &one, sizeof(one), cudaMemcpyHostToDevice),
-              "initialize amplitude zero");
         check(cudaEventCreate(&resources.start), "create start event");
         check(cudaEventCreate(&resources.stop), "create stop event");
-        check(cudaDeviceSynchronize(), "finish initialization");
-
-        check(cudaEventRecord(resources.start), "record start event");
-        for (unsigned int qubit = 0; qubit < qubits; ++qubit) {
-            hadamard<<<grid, kBlockSize>>>(resources.state, pairs, qubit);
-            check(cudaGetLastError(), "launch Hadamard kernel");
-        }
-        check(cudaEventRecord(resources.stop), "record stop event");
-        check(cudaEventSynchronize(resources.stop), "complete Hadamard kernels");
-        float milliseconds = 0.0f;
-        check(cudaEventElapsedTime(&milliseconds, resources.start, resources.stop),
-              "measure elapsed GPU time");
-
         if (shouldVerify) {
             check(cudaMalloc(reinterpret_cast<void**>(&resources.invalid),
                              sizeof(unsigned int)), "allocate verification flag");
-            check(cudaMemset(resources.invalid, 0, sizeof(unsigned int)),
-                  "reset verification flag");
-            const double expected = std::exp2(-0.5 * qubits);
-            verify<<<grid, kBlockSize>>>(resources.state, pairs, expected,
-                                        resources.invalid);
-            check(cudaGetLastError(), "launch verification kernel");
-            unsigned int invalid = 0;
-            check(cudaMemcpy(&invalid, resources.invalid, sizeof(invalid),
-                             cudaMemcpyDeviceToHost), "read verification result");
-            if (invalid) throw std::runtime_error("State verification failed");
+        }
+        for (unsigned int sample = 0; sample < repetitions; ++sample) {
+            check(cudaMemset(resources.state, 0, bytes), "zero state vector");
+            const double2 one = make_double2(1.0, 0.0);
+            check(cudaMemcpy(resources.state, &one, sizeof(one), cudaMemcpyHostToDevice),
+                  "initialize amplitude zero");
+            check(cudaDeviceSynchronize(), "finish initialization");
+
+            check(cudaEventRecord(resources.start), "record start event");
+            for (unsigned int qubit = 0; qubit < qubits; ++qubit) {
+                hadamard<<<grid, kBlockSize>>>(resources.state, pairs, qubit);
+                check(cudaGetLastError(), "launch Hadamard kernel");
+            }
+            check(cudaEventRecord(resources.stop), "record stop event");
+            check(cudaEventSynchronize(resources.stop), "complete Hadamard kernels");
+            float milliseconds = 0.0f;
+            check(cudaEventElapsedTime(&milliseconds, resources.start, resources.stop),
+                  "measure elapsed GPU time");
+
+            if (shouldVerify) {
+                check(cudaMemset(resources.invalid, 0, sizeof(unsigned int)),
+                      "reset verification flag");
+                const double expected = std::exp2(-0.5 * qubits);
+                verify<<<grid, kBlockSize>>>(resources.state, pairs, expected,
+                                            resources.invalid);
+                check(cudaGetLastError(), "launch verification kernel");
+                unsigned int invalid = 0;
+                check(cudaMemcpy(&invalid, resources.invalid, sizeof(invalid),
+                                 cudaMemcpyDeviceToHost), "read verification result");
+                if (invalid) throw std::runtime_error("State verification failed");
+            }
+            std::cout << "Sample " << (sample + 1) << "/" << repetitions
+                      << " Hadamard kernels: " << std::fixed << std::setprecision(3)
+                      << milliseconds << " ms\n";
         }
         resources.release();
-        std::cout << "Hadamard kernels: " << std::fixed << std::setprecision(3)
-                  << milliseconds << " ms\n";
         if (shouldVerify) std::cout << "Verification passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

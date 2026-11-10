@@ -12,10 +12,10 @@ The default state vector alone requires 128 GiB of free GPU memory.
 ```sh
 make
 ./build/cuda_state_vector
-./build/cuda_state_vector 20 --verify
+./build/cuda_state_vector 20 --repetitions 128 --verify
 ```
 
-Prints the total GPU time for the N Hadamard kernels in milliseconds. Optional
-verification runs after timing. See [implementation and validation](docs/implementation.md).
+Repeats the circuit 128 times by default (`--repetitions M` to override), printing
+each sample's GPU time in milliseconds. Optional verification runs after each sample. See [implementation and validation](docs/implementation.md).
 
 See [build configuration](docs/build.md) for setup and custom options.
