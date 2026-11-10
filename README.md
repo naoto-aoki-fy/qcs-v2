@@ -4,15 +4,18 @@ Single-GPU CUDA C++ simulator using FP64 complex amplitudes. Defaults to 33
 qubits initialized to the all-zero computational basis state, then applies one
 Hadamard gate per qubit in ascending order (0 through N−1).
 
-Requires CMake 3.24+, a CUDA toolkit with C++17 support, and an NVIDIA GPU.
+Requires GNU Make, a CUDA toolkit with C++17 support, and an NVIDIA GPU.
+Generate `config.mk` with [nvccoptions](https://github.com/naoto-aoki-fy/nvccoptions)
+and copy it to the project root.
 The default state vector alone requires 128 GiB of free GPU memory.
 
 ```sh
-cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=native
-cmake --build build
+make
 ./build/cuda_state_vector
 ./build/cuda_state_vector 20 --verify
 ```
 
 Prints the total GPU time for the N Hadamard kernels in milliseconds. Optional
 verification runs after timing. See [implementation and validation](docs/implementation.md).
+
+See [build configuration](docs/build.md) for setup and custom options.
