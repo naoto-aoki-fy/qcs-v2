@@ -10,19 +10,39 @@ actual feasibility is limited by available memory on CUDA device 0. No other GPU
 is used, and no cuStateVec dependency is present.
 
 Each complex amplitude is a `double2` (16 bytes). The initial state is
-amplitude 1 at index zero and 0 everywhere else. Each Hadamard kernel uses 64
-threads per block, and each active thread reads and writes exactly one pair of
-complex amplitudes. Pair indices insert a zero bit at the target qubit to find
-the first amplitude; the second has that bit set. All state indices and index
-arithmetic use unsigned 64-bit integers. There is no gate fusion or grid-stride
-loop. Large launches use a two-dimensional grid when necessary; boundary threads
-in a partially filled grid return immediately.
+amplitude 1 at index zero and 0 everywhere else. Each Hadamard remains an
+independent kernel. All launches use scalar X grid and block sizes. The default
+block size remains 64; `--block-size 128` and `--block-size 256` allow measurement
+without rebuilding. No block size is claimed to be faster without device data.
+
+Each thread processes pairs in a 64-bit grid-stride loop. The grid is the smaller
+of ceil(pairs / blockSize) and the device's maximum grid X dimension, optionally
+capped further by `--max-blocks M` (positive). Multiplications promote to 64 bits
+before evaluating the global thread index and stride. For the supported maximum
+of 59 qubits, pairs <= 2^58 and stride <= (2^31 - 1) * 256 on CUDA devices; index
+increments cannot overflow. Each pair has one unique residue modulo the stride,
+so it is visited exactly once. A grid cap allows exercising repeated iterations
+without allocating a huge state vector.
+
+Pair indexing inserts a zero at the target bit using masks and one left shift,
+instead of two variable shifts. At qubit zero this maps pair p to amplitudes 2p
+and 2p+1. This source change may reduce address computation, but generated
+instructions and measurements are needed to establish any benefit. The loop can
+also add overhead; this is not a measured speedup. Target specialization and a
+qubit-zero shuffle kernel are deferred pending instruction and transaction data.
+The double2 layout and FP64 arithmetic are preserved. For qubit zero, each of
+the two warp load streams accesses alternating complex elements; higher target
+bits permit more contiguous accesses within each stream. Cache behavior may
+reduce the cost of overlapping memory sectors, so source stride alone does not
+establish actual DRAM traffic.
 
 All initialization, Hadamard launches, timing events, and optional verification
 use one explicit stream created with `cudaStreamNonBlocking`. Stream ordering
 ensures initialization completes before the gates without a device-wide barrier.
 CUDA events bracket only the sequence of Hadamard launches in this stream. Allocation, zeroing, initialization, and optional verification precede
-or follow this interval. Each reported measurement is one circuit pass, without warmup or averaging;
+or follow this interval. Each reported measurement is one circuit pass, without averaging. Optional
+`--warmup M` runs M initialized circuits before reporting samples (default 0);
+warmup circuits also undergo verification when requested. Otherwise,
 one timing line is printed per sample, including its index and the total count. As with CUDA event timing generally, any GPU idle gaps between
 launches within that interval are included. API failures, launch failures, and
 asynchronous execution failures are reported to standard error with a nonzero
@@ -61,3 +81,62 @@ and values above 4294967295 must also fail. Default runs must print 128 timing
 lines; `--repetitions 1` and `--repetitions 2` must print one and two respectively,
 including successful verification when requested. For a device
 memory error check, run `compute-sanitizer --tool memcheck` on the 8-qubit case.
+
+
+## Optimization validation status
+
+This environment has no CUDA compiler or visible NVIDIA tooling, and contains no
+`custatevec-study` checkout. No CUDA compilation, GPU correctness, instruction
+inspection, or performance comparison was possible. Performance hypotheses above
+are unverified; the 64-thread default is retained deliberately.
+
+`make test` needs only a C++17 host compiler and checks exhaustive small-vector
+pair coverage, capped grid-stride coverage for all three block sizes, and index
+round trips through the 59-qubit boundary, including indices above 2^32.
+It does not allocate a large state vector or substitute for GPU validation.
+The host test passed here with warnings treated as errors. An additional UBSan
+build could not link because the environment lacks the UBSan runtime library.
+`make test-cuda` uses the CUDA configuration and compares each individual gate
+against an independent CPU reference with nonzero real and imaginary inputs,
+for every target of 1-, 8-, and 12-qubit states, all three block sizes, and grid
+caps of 1, 3, and the normal device limit. Run it under compute-sanitizer too.
+Actual large allocations still require hardware with sufficient free memory.
+
+## Reproducible GPU comparison
+
+Build the original revision `a5d68c8` separately (for example from a git archive,
+without switching the current branch) using the same toolkit, architecture flags,
+and optimization flags. Run on the same idle GPU with the same qubit count,
+ascending Hadamards, FP64 complex storage, one device, and fusion disabled in
+all implementations. Match initialization and timing boundaries in
+`custatevec-study`; do not compare timings that include allocation with kernel
+sequence timings. Record GPU model, clocks, driver, toolkit and compiler flags.
+
+For example, on a GPU that fits 24 qubits:
+
+```sh
+make test
+make test-cuda
+for block in 64 128 256; do
+  ./build/cuda_state_vector 24 --block-size "$block" --warmup 10 --repetitions 128 --verify
+done
+./build/cuda_state_vector 12 --max-blocks 1 --repetitions 2 --verify
+compute-sanitizer --tool memcheck ./build/test_kernels
+```
+
+Collect matching unprofiled timing samples from all implementations and report
+median and spread. For the original executable, which has no explicit warmup,
+run 138 samples and discard the first 10. Verification is outside the timed
+interval but can affect subsequent cache/thermal conditions; use the same
+verification policy and repeat without verification for performance comparisons.
+The existing CUDA events report the full gate sequence including launch gaps.
+Use Nsight Compute to collect individual target-qubit kernel durations, DRAM
+read/write bytes, memory sector utilization, occupancy and register counts in
+separate profiling runs. Report effective bandwidth as 32 * amplitudes / seconds
+(one 16-byte read and write per amplitude), explicitly distinguishing this
+logical bandwidth from measured DRAM traffic. Inspect SASS with `cuobjdump
+--dump-sass build/cuda_state_vector` and build with `NVCCFLAGS="-O3 -lineinfo
+-Xptxas=-v"` to compare shift/address instructions and register use against the
+original, especially for qubit zero. Profiler replay timings must not replace
+unprofiled circuit measurements. Choose a new default or specialization only
+when these results support it.

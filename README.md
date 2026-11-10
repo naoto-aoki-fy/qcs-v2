@@ -16,6 +16,8 @@ make
 ```
 
 Repeats the circuit 128 times by default (`--repetitions M` to override), printing
-each sample's GPU time in milliseconds. Optional verification runs after each sample. See [implementation and validation](docs/implementation.md).
+each sample's GPU time in milliseconds. Optional verification runs after each
+sample. Block size and warmup controls, correctness tests, and the benchmark protocol are
+described in [implementation and validation](docs/implementation.md).
 
 See [build configuration](docs/build.md) for setup and custom options.

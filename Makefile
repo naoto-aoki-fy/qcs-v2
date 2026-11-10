@@ -2,8 +2,12 @@
 
 CONFIG_MK ?= config.mk
 
-# Cleaning does not require a compiler configuration.
-ifneq ($(strip $(MAKECMDGOALS)),clean)
+# Cleaning and host-only tests do not require a CUDA configuration.
+ifeq ($(filter-out clean test,$(MAKECMDGOALS)),)
+ifeq ($(strip $(MAKECMDGOALS)),)
+include $(CONFIG_MK)
+endif
+else
 include $(CONFIG_MK)
 endif
 
@@ -15,7 +19,7 @@ LDLIBS ?=
 TARGET := build/cuda_state_vector
 OBJECT := build/main.o
 
-.PHONY: all clean
+.PHONY: all clean test test-cuda
 all: $(TARGET)
 
 $(TARGET): $(OBJECT)
@@ -23,6 +27,14 @@ $(TARGET): $(OBJECT)
 
 $(OBJECT): src/main.cu $(CONFIG_MK) Makefile | build
 	$(NVCC) $(CPPFLAGS) $(CFLAGS_VENDOR) $(GENCODE_FLAGS) $(NVCCFLAGS) -std=c++17 -MMD -MP -c $< -o $@
+
+test: | build
+	$(CXX) -O2 -Wall -Wextra -Werror -std=c++17 tests/indexing.cpp -o build/test_indexing
+	./build/test_indexing
+
+test-cuda: | build
+	$(NVCC) $(CPPFLAGS) $(CFLAGS_VENDOR) $(GENCODE_FLAGS) $(NVCCFLAGS) -std=c++17 tests/kernels.cu $(LDFLAGS) $(LDFLAGS_VENDOR) $(LDLIBS) -o build/test_kernels
+	./build/test_kernels
 
 build:
 	mkdir -p $@
