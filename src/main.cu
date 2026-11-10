@@ -8,6 +8,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 constexpr unsigned int kBlockSize = 64;
 static_assert(sizeof(double2) == 16, "Expected FP64 complex storage");
@@ -26,10 +27,14 @@ struct Resources {
     unsigned int* invalid = nullptr;
     cudaEvent_t start = nullptr;
     cudaEvent_t stop = nullptr;
+    std::vector<cudaEvent_t> gateEvents;
 
     // Explicit checked cleanup on success; best-effort cleanup during unwinding.
     ~Resources() {
         if (stream) cudaStreamSynchronize(stream);
+        for (auto event : gateEvents) {
+            if (event) cudaEventDestroy(event);
+        }
         if (stop) cudaEventDestroy(stop);
         if (start) cudaEventDestroy(start);
         if (invalid) cudaFree(invalid);
@@ -39,6 +44,11 @@ struct Resources {
 
     void release() {
         check(cudaStreamSynchronize(stream), "complete stream work");
+        for (auto& event : gateEvents) {
+            check(cudaEventDestroy(event), "destroy gate timing event");
+            event = nullptr;
+        }
+        gateEvents.clear();
         check(cudaEventDestroy(stop), "destroy stop event");
         stop = nullptr;
         check(cudaEventDestroy(start), "destroy start event");
@@ -63,6 +73,7 @@ int main(int argc, char** argv) {
         unsigned int warmup = 0;
         unsigned int maxBlocks = 0;
         bool shouldVerify = false;
+        bool timeGates = false;
         bool countProvided = false;
         for (int i = 1; i < argc; ++i) {
             const std::string argument(argv[i]);
@@ -85,6 +96,8 @@ int main(int argc, char** argv) {
                     if (value == 0) throw std::runtime_error("--max-blocks must be positive");
                     maxBlocks = static_cast<unsigned int>(value);
                 }
+            } else if (argument == "--time-gates" && !timeGates) {
+                timeGates = true;
             } else if (argument == "--verify" && !shouldVerify) {
                 shouldVerify = true;
             } else if (argument == "--repetitions" && !repetitionsProvided) {
@@ -111,7 +124,7 @@ int main(int argc, char** argv) {
                 qubits = static_cast<unsigned int>(value);
                 countProvided = true;
             } else {
-                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--verify] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
+                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--verify] [--time-gates] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
             }
         }
 
@@ -150,6 +163,13 @@ int main(int argc, char** argv) {
               "create start event");
         check(cudaEventCreateWithFlags(&resources.stop, cudaEventBlockingSync),
               "create stop event");
+        if (timeGates) {
+            resources.gateEvents.resize(qubits + 1, nullptr);
+            for (auto& event : resources.gateEvents) {
+                check(cudaEventCreateWithFlags(&event, cudaEventBlockingSync),
+                      "create gate timing event");
+            }
+        }
         if (shouldVerify) {
             check(cudaMalloc(reinterpret_cast<void**>(&resources.invalid),
                              sizeof(unsigned int)), "allocate verification flag");
@@ -161,9 +181,17 @@ int main(int argc, char** argv) {
                   "initialize amplitude zero");
 
             check(cudaEventRecord(resources.start, resources.stream), "record start event");
+            if (timeGates) {
+                check(cudaEventRecord(resources.gateEvents[0], resources.stream),
+                      "record first gate boundary");
+            }
             for (unsigned int qubit = 0; qubit < qubits; ++qubit) {
                 hadamard<<<grid, blockSize, 0, resources.stream>>>(resources.state, pairs, qubit);
                 check(cudaGetLastError(), "launch Hadamard kernel");
+                if (timeGates) {
+                    check(cudaEventRecord(resources.gateEvents[qubit + 1], resources.stream),
+                          "record gate boundary");
+                }
             }
             check(cudaEventRecord(resources.stop, resources.stream), "record stop event");
             check(cudaEventSynchronize(resources.stop), "complete Hadamard kernels");
@@ -188,6 +216,17 @@ int main(int argc, char** argv) {
             std::cout << "Sample " << (sample - warmup + 1) << "/" << repetitions
                       << " Hadamard kernels: " << std::fixed << std::setprecision(3)
                       << milliseconds << " ms\n";
+            if (timeGates) {
+                for (unsigned int qubit = 0; qubit < qubits; ++qubit) {
+                    float gateMilliseconds = 0.0f;
+                    check(cudaEventElapsedTime(&gateMilliseconds,
+                                              resources.gateEvents[qubit],
+                                              resources.gateEvents[qubit + 1]),
+                          "measure gate GPU time");
+                    std::cout << "  Hadamard qubit " << qubit << ": "
+                              << gateMilliseconds << " ms\n";
+                }
+            }
         }
         resources.release();
         if (shouldVerify) std::cout << "Verification passed\n";

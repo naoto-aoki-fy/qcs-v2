@@ -16,7 +16,8 @@ make
 ```
 
 Repeats the circuit 128 times by default (`--repetitions M` to override), printing
-each sample's GPU time in milliseconds. Optional verification runs after each
+each sample's GPU time in milliseconds. Add `--time-gates` to also print each
+Hadamard gate's GPU time. Optional verification runs after each
 sample. Block size and warmup controls, correctness tests, and the benchmark protocol are
 described in [implementation and validation](docs/implementation.md).
 

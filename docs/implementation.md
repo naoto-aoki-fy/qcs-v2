@@ -51,6 +51,25 @@ asynchronous execution failures are reported to standard error with a nonzero
 exit status. The program rejects insufficient free memory before allocation;
 allocation can still fail if available memory changes after the check.
 
+With `--time-gates`, each reported sample additionally prints one GPU time in
+milliseconds per Hadamard gate, labeled by its zero-based target qubit. Timing
+is disabled by default. An event at each gate boundary is recorded in the same
+stream; elapsed times are read only after the circuit stop event completes,
+without synchronizing between gates. Events are allocated once and reused for
+all samples. Warmup gate times are not printed. Initialization and verification
+remain outside these measurements. Event intervals can include launch gaps;
+additional event recording can perturb both gate and circuit times, so compare
+performance using the same timing mode.
+
+For a small GPU smoke test, run:
+
+```sh
+./build/cuda_state_vector 8 --repetitions 2 --warmup 1 --time-gates --verify
+```
+
+Expect two sample totals, each followed by eight gate timings for qubits 0–7,
+and successful verification. Without `--time-gates`, expect only sample totals.
+
 Host waits use blocking synchronization: `cudaDeviceScheduleBlockingSync` is set
 before device initialization for stream synchronization, and both timing events
 are created with `cudaEventBlockingSync`. Event timing remains enabled.
