@@ -4,6 +4,30 @@
 #include <cmath>
 #include "indexing.hpp"
 
+// Requires a block size divisible by 32 and an even amplitude count.
+__global__ void hadamardQubitZero(double2* state, Index amplitudes) {
+    const Index begin = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const Index stride = static_cast<Index>(gridDim.x) * blockDim.x;
+    constexpr unsigned int warpMask = 0xffffffffu;
+    const Index lane = threadIdx.x & 31u;
+    for (Index base = begin - lane; base < amplitudes; base += stride) {
+        const Index index = base + lane;
+        // Every lane votes before the bounds branch, including in a short final warp.
+        const unsigned int mask = __ballot_sync(warpMask, index < amplitudes);
+        if (index < amplitudes) {
+            const double2 own = state[index];
+            const double real = __shfl_xor_sync(mask, own.x, 1);
+            const double imag = __shfl_xor_sync(mask, own.y, 1);
+            constexpr double scale = 0.7071067811865475244;
+            // An even count and even stride keep both members of every pair active.
+            const double2 result = (lane & 1u)
+                ? make_double2((real - own.x) * scale, (imag - own.y) * scale)
+                : make_double2((own.x + real) * scale, (own.y + imag) * scale);
+            state[index] = result;
+        }
+    }
+}
+
 __global__ void hadamard(double2* state, Index pairs, unsigned int qubit) {
     const Index begin = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
     const Index stride = static_cast<Index>(gridDim.x) * blockDim.x;

@@ -75,6 +75,7 @@ int main(int argc, char** argv) {
         unsigned int maxBlocks = 0;
         bool shouldVerify = false;
         bool timeGates = false;
+        bool baselineQubitZero = false;
         bool countProvided = false;
         QubitOrder qubitOrder = QubitOrder::Ascending;
         for (int i = 1; i < argc; ++i) {
@@ -102,6 +103,8 @@ int main(int argc, char** argv) {
                     if (value == 0) throw std::runtime_error("--max-blocks must be positive");
                     maxBlocks = static_cast<unsigned int>(value);
                 }
+            } else if (argument == "--baseline-q0" && !baselineQubitZero) {
+                baselineQubitZero = true;
             } else if (argument == "--time-gates" && !timeGates) {
                 timeGates = true;
             } else if (argument == "--verify" && !shouldVerify) {
@@ -130,7 +133,7 @@ int main(int argc, char** argv) {
                 qubits = static_cast<unsigned int>(value);
                 countProvided = true;
             } else {
-                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--qubit-order ascending|descending] [--verify] [--time-gates] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
+                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--qubit-order ascending|descending] [--verify] [--time-gates] [--baseline-q0] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
             }
         }
 
@@ -157,6 +160,8 @@ int main(int argc, char** argv) {
         const Index pairs = amplitudes / 2;
         const unsigned int deviceLimit = static_cast<unsigned int>(properties.maxGridSize[0]);
         const unsigned int grid = gridFor(pairs, blockSize,
+            maxBlocks && maxBlocks < deviceLimit ? maxBlocks : deviceLimit);
+        const unsigned int q0Grid = gridFor(amplitudes, blockSize,
             maxBlocks && maxBlocks < deviceLimit ? maxBlocks : deviceLimit);
         const double2 one = make_double2(1.0, 0.0);
         unsigned int invalid = 0;
@@ -193,7 +198,12 @@ int main(int argc, char** argv) {
             }
             for (unsigned int gate = 0; gate < qubits; ++gate) {
                 const unsigned int qubit = targetQubit(gate, qubits, qubitOrder);
-                hadamard<<<grid, blockSize, 0, resources.stream>>>(resources.state, pairs, qubit);
+                if (qubit == 0 && !baselineQubitZero) {
+                    hadamardQubitZero<<<q0Grid, blockSize, 0, resources.stream>>>(
+                        resources.state, amplitudes);
+                } else {
+                    hadamard<<<grid, blockSize, 0, resources.stream>>>(resources.state, pairs, qubit);
+                }
                 check(cudaGetLastError(), "launch Hadamard kernel");
                 if (timeGates) {
                     check(cudaEventRecord(resources.gateEvents[gate + 1], resources.stream),

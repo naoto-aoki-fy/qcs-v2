@@ -30,7 +30,8 @@ independent kernel. All launches use scalar X grid and block sizes. The default
 block size remains 64; `--block-size 128` and `--block-size 256` allow measurement
 without rebuilding. No block size is claimed to be faster without device data.
 
-Each thread processes pairs in a 64-bit grid-stride loop. The grid is the smaller
+For targets above zero (and the optional q=0 baseline), each thread processes
+pairs in a 64-bit grid-stride loop. The grid is the smaller
 of ceil(pairs / blockSize) and the device's maximum grid X dimension, optionally
 capped further by `--max-blocks M` (positive). Multiplications promote to 64 bits
 before evaluating the global thread index and stride. For the supported maximum
@@ -45,8 +46,7 @@ and `first = (pair << 1) - low`. Writing `pair = high * bit + low` shows that
 the high bits up by one. At qubit zero this maps pair p to amplitudes 2p
 and 2p+1. This source change may reduce address computation, but generated
 instructions and measurements are needed to establish any benefit. The loop can
-also add overhead; this is not a measured speedup. Target specialization and a
-qubit-zero shuffle kernel are deferred pending instruction and transaction data.
+also add overhead; this is not a measured speedup. The q=0 shuffle specialization described below is available for comparison.
 The double2 layout and FP64 arithmetic are preserved. For qubit zero, each of
 the two warp load streams accesses alternating complex elements; higher target
 bits permit more contiguous accesses within each stream. Cache behavior may
@@ -134,7 +134,7 @@ The host test passed here with warnings treated as errors. An additional UBSan
 build could not link because the environment lacks the UBSan runtime library.
 `make test-cuda` uses the CUDA configuration and compares each individual gate
 against an independent CPU reference with nonzero real and imaginary inputs,
-for every target of 1-, 8-, and 12-qubit states, all three block sizes, and grid
+for every target of 1-, 2-, 3-, 4-, 5-, 6-, 8-, and 12-qubit states, all three block sizes, and grid
 caps of 1, 3, and the normal device limit. Run it under compute-sanitizer too.
 Actual large allocations still require hardware with sufficient free memory.
 
@@ -176,3 +176,44 @@ logical bandwidth from measured DRAM traffic. Inspect SASS with `cuobjdump
 original, especially for qubit zero. Profiler replay timings must not replace
 unprofiled circuit measurements. Choose a new default or specialization only
 when these results support it.
+
+
+## Qubit-zero warp shuffle
+
+By default, q=0 uses `hadamardQubitZero`: each thread loads and stores one
+contiguous `double2` amplitude. Two FP64 `__shfl_xor_sync` operations with lane
+mask 1 exchange real and imaginary components. Even lanes write `(a+b)*scale`;
+odd lanes write `(a-b)*scale`, with the same FP64 scale as the pair kernel.
+Targets q>=1 retain the existing kernel and launch dimensions.
+
+Index and stride arithmetic remain 64-bit. The q=0 grid is sized by amplitudes
+rather than pairs, subject to the same grid cap. Supported blocks are multiples
+of 32. Each warp iterates uniformly and ballots valid indices before branching;
+the resulting participation mask includes only valid lanes. Even state sizes
+and warp-aligned strides ensure each active lane's XOR partner participates,
+including 2-, 4-, 8-, and 16-amplitude states. Both shuffle operations complete
+before writes, so each pair has loaded its inputs before either output can
+overwrite them. Each thread owns a unique amplitude; no additional buffer or
+cross-warp synchronization is needed.
+
+`--baseline-q0` selects the original pair kernel for q=0 for A/B measurements.
+Use identical options on the same idle GPU, for example (32 qubits need 64 GiB
+for the state vector plus runtime overhead):
+
+```sh
+make test
+make test-cuda
+./build/cuda_state_vector 32 --warmup 10 --repetitions 128 --time-gates --verify --baseline-q0
+./build/cuda_state_vector 32 --warmup 10 --repetitions 128 --time-gates --verify
+```
+
+Alternate baseline and shuffle runs and compare medians and spread for q=0
+and q>=1; repeat with descending order and each supported block size. Tests
+compare both q=0 kernels directly as well as against the CPU reference, covering
+partial warps and repeated grid-stride iterations. Run the CUDA tests under
+compute-sanitizer on a GPU as well.
+
+No CUDA compiler or NVIDIA GPU tooling is available in the implementation
+environment. CUDA compilation, GPU correctness, and performance have not been
+measured; the specialization is pending GPU validation and no speedup is claimed.
+The baseline switch remains available if measurements show a regression.
