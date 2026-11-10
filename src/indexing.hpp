@@ -13,7 +13,8 @@ using Index = std::uint64_t;
 
 // Insert a zero at the target bit. Valid for pair < 2^58 and bit <= 2^58.
 QCS_HD inline Index firstAmplitude(Index pair, Index bit) {
-    return (pair & (bit - 1)) | ((pair & ~(bit - 1)) << 1);
+    const Index low = pair & (bit - 1);
+    return (pair << 1) - low;
 }
 #undef QCS_HD
 

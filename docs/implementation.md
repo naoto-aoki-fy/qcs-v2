@@ -24,8 +24,10 @@ increments cannot overflow. Each pair has one unique residue modulo the stride,
 so it is visited exactly once. A grid cap allows exercising repeated iterations
 without allocating a huge state vector.
 
-Pair indexing inserts a zero at the target bit using masks and one left shift,
-instead of two variable shifts. At qubit zero this maps pair p to amplitudes 2p
+Pair indexing inserts a zero at the target bit using `low = pair & (bit - 1)`
+and `first = (pair << 1) - low`. Writing `pair = high * bit + low` shows that
+`2 * pair - low = high * 2 * bit + low`, preserving the low bits while shifting
+the high bits up by one. At qubit zero this maps pair p to amplitudes 2p
 and 2p+1. This source change may reduce address computation, but generated
 instructions and measurements are needed to establish any benefit. The loop can
 also add overhead; this is not a measured speedup. Target specialization and a
