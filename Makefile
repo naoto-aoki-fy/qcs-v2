@@ -31,6 +31,8 @@ $(OBJECT): src/main.cu $(CONFIG_MK) Makefile | build
 test: | build
 	$(CXX) -O2 -Wall -Wextra -Werror -std=c++17 tests/indexing.cpp -o build/test_indexing
 	./build/test_indexing
+	$(CXX) -O2 -Wall -Wextra -Werror -std=c++17 tests/qubit_order.cpp -o build/test_qubit_order
+	./build/test_qubit_order
 
 test-cuda: | build
 	$(NVCC) $(CPPFLAGS) $(CFLAGS_VENDOR) $(GENCODE_FLAGS) $(NVCCFLAGS) -std=c++17 tests/kernels.cu $(LDFLAGS) $(LDFLAGS_VENDOR) $(LDLIBS) -o build/test_kernels

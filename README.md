@@ -2,7 +2,8 @@
 
 Single-GPU CUDA C++ simulator using FP64 complex amplitudes. Defaults to 33
 qubits initialized to the all-zero computational basis state, then applies one
-Hadamard gate per qubit in ascending order (0 through N−1).
+Hadamard gate per qubit in ascending order (0 through N−1) by default.
+Use `--qubit-order descending` to apply gates from N−1 down to 0.
 
 Requires GNU Make, a CUDA toolkit with C++17 support, and an NVIDIA GPU.
 Generate `config.mk` with [nvccoptions](https://github.com/naoto-aoki-fy/nvccoptions)

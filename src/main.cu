@@ -1,4 +1,5 @@
 #include "kernels.cuh"
+#include "qubit_order.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -75,9 +76,14 @@ int main(int argc, char** argv) {
         bool shouldVerify = false;
         bool timeGates = false;
         bool countProvided = false;
+        QubitOrder qubitOrder = QubitOrder::Ascending;
         for (int i = 1; i < argc; ++i) {
             const std::string argument(argv[i]);
-            if (argument == "--block-size" || argument == "--warmup" ||
+            if (argument == "--qubit-order") {
+                if (++i >= argc)
+                    throw std::runtime_error("--qubit-order requires ascending or descending");
+                qubitOrder = parseQubitOrder(argv[i]);
+            } else if (argument == "--block-size" || argument == "--warmup" ||
                 argument == "--max-blocks") {
                 if (++i >= argc) throw std::runtime_error(argument + " requires an integer");
                 const std::string count(argv[i]);
@@ -124,7 +130,7 @@ int main(int argc, char** argv) {
                 qubits = static_cast<unsigned int>(value);
                 countProvided = true;
             } else {
-                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--verify] [--time-gates] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
+                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--qubit-order ascending|descending] [--verify] [--time-gates] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
             }
         }
 
@@ -185,11 +191,12 @@ int main(int argc, char** argv) {
                 check(cudaEventRecord(resources.gateEvents[0], resources.stream),
                       "record first gate boundary");
             }
-            for (unsigned int qubit = 0; qubit < qubits; ++qubit) {
+            for (unsigned int gate = 0; gate < qubits; ++gate) {
+                const unsigned int qubit = targetQubit(gate, qubits, qubitOrder);
                 hadamard<<<grid, blockSize, 0, resources.stream>>>(resources.state, pairs, qubit);
                 check(cudaGetLastError(), "launch Hadamard kernel");
                 if (timeGates) {
-                    check(cudaEventRecord(resources.gateEvents[qubit + 1], resources.stream),
+                    check(cudaEventRecord(resources.gateEvents[gate + 1], resources.stream),
                           "record gate boundary");
                 }
             }
@@ -217,11 +224,12 @@ int main(int argc, char** argv) {
                       << " Hadamard kernels: " << std::fixed << std::setprecision(3)
                       << milliseconds << " ms\n";
             if (timeGates) {
-                for (unsigned int qubit = 0; qubit < qubits; ++qubit) {
+                for (unsigned int gate = 0; gate < qubits; ++gate) {
+                    const unsigned int qubit = targetQubit(gate, qubits, qubitOrder);
                     float gateMilliseconds = 0.0f;
                     check(cudaEventElapsedTime(&gateMilliseconds,
-                                              resources.gateEvents[qubit],
-                                              resources.gateEvents[qubit + 1]),
+                                              resources.gateEvents[gate],
+                                              resources.gateEvents[gate + 1]),
                           "measure gate GPU time");
                     std::cout << "  Hadamard qubit " << qubit << ": "
                               << gateMilliseconds << " ms\n";

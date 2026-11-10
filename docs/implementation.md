@@ -2,6 +2,21 @@
 
 The optional qubit count is an integer from 1 through 59; the default is 33.
 N qubits have indices 0 through N−1, so exactly N Hadamard kernels are launched per sample.
+Gate order is selected with `--qubit-order ascending|descending` (default
+`ascending`). Qubit 0 is the least significant state-index bit; `descending`
+applies gates from the most significant qubit N−1 down to 0. This changes gate
+execution order, including warmup, without changing state-vector bit numbering.
+Gate timing lines follow execution order and retain the actual target labels.
+For example:
+
+```sh
+./build/cuda_state_vector 8 --qubit-order descending --repetitions 2 --time-gates --verify
+```
+
+Expect gate labels 7 through 0 for each sample. Both orders produce the same
+final state because Hadamards on distinct qubits commute. Missing or invalid
+`--qubit-order` values are rejected.
+
 The circuit is repeated M times (default 128), controlled by `--repetitions M`.
 M must be an integer from 1 through the maximum unsigned 32-bit value.
 Each sample starts from a freshly initialized all-zero computational basis state.
