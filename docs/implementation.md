@@ -60,14 +60,14 @@ CUDA events bracket only the sequence of Hadamard launches in this stream. Alloc
 or follow this interval. Each reported measurement is one circuit pass, without averaging. Optional
 `--warmup M` runs M initialized circuits before reporting samples (default 0);
 warmup circuits also undergo verification when requested. Otherwise,
-one timing line is printed per sample, including its index and the total count. As with CUDA event timing generally, any GPU idle gaps between
+one CSV total row is printed per sample, including its index and the total count. As with CUDA event timing generally, any GPU idle gaps between
 launches within that interval are included. API failures, launch failures, and
 asynchronous execution failures are reported to standard error with a nonzero
 exit status. The program rejects insufficient free memory before allocation;
 allocation can still fail if available memory changes after the check.
 
 With `--time-gates`, each reported sample additionally prints one GPU time in
-milliseconds per Hadamard gate, labeled by its zero-based target qubit. Timing
+milliseconds per Hadamard gate, labeled by its zero-based target qubit. Per-gate timing
 is disabled by default. An event at each gate boundary is recorded in the same
 stream; elapsed times are read only after the circuit stop event completes,
 without synchronizing between gates. Events are allocated once and reused for
@@ -75,6 +75,25 @@ all samples. Warmup gate times are not printed. Initialization and verification
 remain outside these measurements. Event intervals can include launch gaps;
 additional event recording can perturb both gate and circuit times, so compare
 performance using the same timing mode.
+
+Timing output is CSV on standard output, with a single header:
+
+```csv
+type,sample,repetitions,qubit,milliseconds
+total,1,2,,0.123456
+gate,1,2,0,0.012345
+```
+
+`total` rows contain the Hadamard kernel sequence time and an empty qubit
+field. With `--time-gates`, `gate` rows follow each total in execution order,
+with the zero-based target qubit. Sample indices start at 1 after warmup.
+Times use milliseconds with six decimal places; displayed precision does not
+imply measurement accuracy. Verification success and errors go to standard
+error so they do not contaminate the CSV. Redirect standard output to save it:
+
+```sh
+./build/cuda_state_vector 8 --repetitions 2 --time-gates --verify > timings.csv
+```
 
 For a small GPU smoke test, run:
 

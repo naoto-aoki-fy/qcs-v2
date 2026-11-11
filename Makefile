@@ -33,6 +33,8 @@ test: | build
 	./build/test_indexing
 	$(CXX) -O2 -Wall -Wextra -Werror -std=c++17 tests/qubit_order.cpp -o build/test_qubit_order
 	./build/test_qubit_order
+	$(CXX) -O2 -Wall -Wextra -Werror -std=c++17 tests/timing_csv.cpp -o build/test_timing_csv
+	./build/test_timing_csv
 
 test-cuda: | build
 	$(NVCC) $(CPPFLAGS) $(CFLAGS_VENDOR) $(GENCODE_FLAGS) $(NVCCFLAGS) -std=c++17 tests/kernels.cu $(LDFLAGS) $(LDFLAGS_VENDOR) $(LDLIBS) -o build/test_kernels

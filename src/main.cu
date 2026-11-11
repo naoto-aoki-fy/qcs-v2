@@ -1,10 +1,10 @@
 #include "kernels.cuh"
 #include "qubit_order.hpp"
+#include "timing_csv.hpp"
 
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
-#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -185,6 +185,7 @@ int main(int argc, char** argv) {
             check(cudaMalloc(reinterpret_cast<void**>(&resources.invalid),
                              sizeof(unsigned int)), "allocate verification flag");
         }
+        writeTimingCsvHeader(std::cout);
         for (Index sample = 0; sample < static_cast<Index>(warmup) + repetitions; ++sample) {
             check(cudaMemsetAsync(resources.state, 0, bytes, resources.stream), "zero state vector");
             check(cudaMemcpyAsync(resources.state, &one, sizeof(one),
@@ -230,9 +231,7 @@ int main(int argc, char** argv) {
                 if (invalid) throw std::runtime_error("State verification failed");
             }
             if (sample < warmup) continue;
-            std::cout << "Sample " << (sample - warmup + 1) << "/" << repetitions
-                      << " Hadamard kernels: " << std::fixed << std::setprecision(3)
-                      << milliseconds << " ms\n";
+            writeTimingCsvRow(std::cout, sample - warmup + 1, repetitions, milliseconds);
             if (timeGates) {
                 for (unsigned int gate = 0; gate < qubits; ++gate) {
                     const unsigned int qubit = targetQubit(gate, qubits, qubitOrder);
@@ -241,13 +240,13 @@ int main(int argc, char** argv) {
                                               resources.gateEvents[gate],
                                               resources.gateEvents[gate + 1]),
                           "measure gate GPU time");
-                    std::cout << "  Hadamard qubit " << qubit << ": "
-                              << gateMilliseconds << " ms\n";
+                    writeTimingCsvRow(std::cout, sample - warmup + 1, repetitions,
+                                      gateMilliseconds, static_cast<int>(qubit));
                 }
             }
         }
         resources.release();
-        if (shouldVerify) std::cout << "Verification passed\n";
+        if (shouldVerify) std::cerr << "Verification passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << '\n';
