@@ -75,7 +75,6 @@ int main(int argc, char** argv) {
         unsigned int maxBlocks = 0;
         bool shouldVerify = false;
         bool timeGates = false;
-        bool baselineQubitZero = false;
         bool q0WarpShuffle = false;
         bool q8PairSwizzle = false;
         bool countProvided = false;
@@ -109,8 +108,6 @@ int main(int argc, char** argv) {
                 q8PairSwizzle = true;
             } else if (argument == "--q0-warp-shuffle" && !q0WarpShuffle) {
                 q0WarpShuffle = true;
-            } else if (argument == "--baseline-q0" && !baselineQubitZero) {
-                baselineQubitZero = true;
             } else if (argument == "--time-gates" && !timeGates) {
                 timeGates = true;
             } else if (argument == "--verify" && !shouldVerify) {
@@ -139,7 +136,7 @@ int main(int argc, char** argv) {
                 qubits = static_cast<unsigned int>(value);
                 countProvided = true;
             } else {
-                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--qubit-order ascending|descending] [--verify] [--time-gates] [--baseline-q0] [--q0-warp-shuffle] [--q8-pair-swizzle] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
+                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--qubit-order ascending|descending] [--verify] [--time-gates] [--q0-warp-shuffle] [--q8-pair-swizzle] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
             }
         }
 
@@ -205,7 +202,7 @@ int main(int argc, char** argv) {
             }
             for (unsigned int gate = 0; gate < qubits; ++gate) {
                 const unsigned int qubit = targetQubit(gate, qubits, qubitOrder);
-                if (qubit == 0 && q0WarpShuffle && !baselineQubitZero && qubits >= 5) {
+                if (qubit == 0 && q0WarpShuffle && qubits >= 5) {
                     hadamardQubitZero<<<q0Grid, blockSize, 0, resources.stream>>>(
                         resources.state, amplitudes);
                 } else if (useQ8PairSwizzle(q8PairSwizzle, qubit, qubits)) {

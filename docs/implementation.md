@@ -216,10 +216,8 @@ before writes, so each pair has loaded its inputs before either output can
 overwrite them. Each thread owns a unique amplitude; no additional buffer or
 cross-warp synchronization is needed.
 
-`--baseline-q0` remains supported for compatibility and forces the pair kernel,
-including when combined with `--q0-warp-shuffle`, regardless of option order.
-Without either option, the pair kernel is used. For N<5, the pair kernel is
-always used.
+Without `--q0-warp-shuffle`, the pair kernel is used. For N<5, the pair
+kernel is always used.
 Use identical options on the same idle GPU, for example (32 qubits need 64 GiB
 for the state vector plus runtime overhead):
 
@@ -247,7 +245,7 @@ The shuffle kernel is opt-in pending GPU validation.
 `--q8-pair-swizzle` enables an experimental instantiation of the pair kernel
 only for target q=8 with N>=10. The default remains the original pair mapping;
 N=9 and all other targets retain their existing paths. This switch combines
-with all existing options, including gate order, `--q0-warp-shuffle`, and `--baseline-q0`.
+with all existing options, including gate order and `--q0-warp-shuffle`.
 The q=0 pair kernel remains the default in both q=8 comparison runs.
 
 Before inserting the target bit, the experiment swaps bits 5 and 8 of the
