@@ -30,7 +30,7 @@ independent kernel. All launches use scalar X grid and block sizes. The default
 block size remains 64; `--block-size 128` and `--block-size 256` allow measurement
 without rebuilding. No block size is claimed to be faster without device data.
 
-For targets above zero (and the optional q=0 baseline), each thread processes
+By default, for every target including q=0, each thread processes
 pairs in a 64-bit grid-stride loop. The grid is the smaller
 of ceil(pairs / blockSize) and the device's maximum grid X dimension, optionally
 capped further by `--max-blocks M` (positive). Multiplications promote to 64 bits
@@ -199,7 +199,9 @@ when these results support it.
 
 ## Qubit-zero warp shuffle
 
-By default, q=0 with N>=5 uses `hadamardQubitZero`: each thread loads and stores one
+The default q=0 implementation is the pair kernel. Explicitly specifying
+`--q0-warp-shuffle` enables `hadamardQubitZero` for q=0 with N>=5:
+each thread loads and stores one
 contiguous `double2` amplitude. Two FP64 `__shfl_xor_sync` operations with lane
 mask 1 exchange real and imaginary components. Even lanes write `(a+b)*scale`;
 odd lanes write `(a-b)*scale`, with the same FP64 scale as the pair kernel.
@@ -214,15 +216,18 @@ before writes, so each pair has loaded its inputs before either output can
 overwrite them. Each thread owns a unique amplitude; no additional buffer or
 cross-warp synchronization is needed.
 
-`--baseline-q0` selects the original pair kernel for q=0 for A/B measurements.
+`--baseline-q0` remains supported for compatibility and forces the pair kernel,
+including when combined with `--q0-warp-shuffle`, regardless of option order.
+Without either option, the pair kernel is used. For N<5, the pair kernel is
+always used.
 Use identical options on the same idle GPU, for example (32 qubits need 64 GiB
 for the state vector plus runtime overhead):
 
 ```sh
 make test
 make test-cuda
-./build/cuda_state_vector 32 --warmup 10 --repetitions 128 --time-gates --verify --baseline-q0
 ./build/cuda_state_vector 32 --warmup 10 --repetitions 128 --time-gates --verify
+./build/cuda_state_vector 32 --warmup 10 --repetitions 128 --time-gates --verify --q0-warp-shuffle
 ```
 
 Alternate baseline and shuffle runs and compare medians and spread for q=0
@@ -235,14 +240,15 @@ compute-sanitizer on a GPU as well.
 No CUDA compiler or NVIDIA GPU tooling is available in the implementation
 environment. CUDA compilation, GPU correctness, and performance have not been
 measured; the specialization is pending GPU validation and no speedup is claimed.
-The baseline switch remains available if measurements show a regression.
+The shuffle kernel is opt-in pending GPU validation.
 
 ## Experimental q=8 pair permutation
 
 `--q8-pair-swizzle` enables an experimental instantiation of the pair kernel
 only for target q=8 with N>=10. The default remains the original pair mapping;
 N=9 and all other targets retain their existing paths. This switch combines
-with all existing options, including gate order and `--baseline-q0`.
+with all existing options, including gate order, `--q0-warp-shuffle`, and `--baseline-q0`.
+The q=0 pair kernel remains the default in both q=8 comparison runs.
 
 Before inserting the target bit, the experiment swaps bits 5 and 8 of the
 logical pair index. The loop counter and grid stride remain unchanged. Swapping
