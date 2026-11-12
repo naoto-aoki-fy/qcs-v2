@@ -236,3 +236,62 @@ No CUDA compiler or NVIDIA GPU tooling is available in the implementation
 environment. CUDA compilation, GPU correctness, and performance have not been
 measured; the specialization is pending GPU validation and no speedup is claimed.
 The baseline switch remains available if measurements show a regression.
+
+## Experimental q=8 pair permutation
+
+`--q8-pair-swizzle` enables an experimental instantiation of the pair kernel
+only for target q=8 with N>=10. The default remains the original pair mapping;
+N=9 and all other targets retain their existing paths. This switch combines
+with all existing options, including gate order and `--baseline-q0`.
+
+Before inserting the target bit, the experiment swaps bits 5 and 8 of the
+logical pair index. The loop counter and grid stride remain unchanged. Swapping
+twice restores the original index, proving bijectivity on the power-of-two
+pair domain when both bits exist (N>=10). Original grid-stride coverage thus
+implies each mapped pair, and each of its two distinct amplitudes, is visited
+exactly once. There is no overlap between writers and no extra synchronization,
+state storage, or change to gate order or FP64 arithmetic.
+
+The lower five pair bits are preserved, so consecutive lanes still access
+consecutive amplitudes in each of the two streams. The baseline q=8 accesses
+are already coalesced. This experiment changes warp/block ownership of pairs,
+which may alter cache locality, memory partition traffic, and scheduling.
+Additional integer instructions or register pressure may offset any benefit;
+there is no measured performance improvement.
+
+`make test` exhaustively checks the permutation, inverse, lane bits, bounds,
+and unique pair/amplitude ownership for N=10..16, blocks 64/128/256, and grid
+caps 1/2/3/uncapped. It also checks dispatch eligibility, including N=9.
+`make test-cuda` includes N=9/10/12, compares the experimental path directly
+with the baseline and an independent complex-valued CPU reference, and checks
+full circuits in both orders for each block size and caps 1/3/uncapped.
+Host tests passed in the implementation environment. CUDA compilation, GPU
+correctness, sanitizer checks, and performance remain unverified because no
+CUDA compiler or NVIDIA GPU tooling is available.
+
+On a configured GPU, run `make test-cuda` and
+`compute-sanitizer --tool memcheck ./build/test_kernels`. Also test the actual
+CLI and verification kernel for N=9 (fallback), 10, and 12 with each block size,
+both orders, and grid caps 1 and 3, for example:
+
+```sh
+./build/cuda_state_vector 10 --block-size 128 --max-blocks 1 --warmup 1 \
+  --repetitions 2 --qubit-order descending --time-gates --verify --q8-pair-swizzle
+```
+
+For performance, use the same executable and configuration for both paths:
+
+```sh
+./build/cuda_state_vector 32 --block-size 64 --warmup 10 --repetitions 30 \
+  --time-gates > baseline.csv
+./build/cuda_state_vector 32 --block-size 64 --warmup 10 --repetitions 30 \
+  --time-gates --q8-pair-swizzle > swizzle.csv
+```
+
+Alternate baseline and experimental runs on the same idle GPU. Keep N, block
+size, grid cap, gate order, verification policy, compiler flags, GPU clocks,
+and timing mode identical. Record hardware, driver, and toolkit versions.
+For each CSV report the median, interquartile range (25th–75th percentiles),
+and minimum/maximum separately for q=7, q=8, q=9 and total circuit time.
+Repeat with each supported block size and relevant grid caps. A 32-qubit
+state needs 64 GiB plus runtime overhead; use a smaller N>=10 if necessary.

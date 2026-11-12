@@ -76,6 +76,7 @@ int main(int argc, char** argv) {
         bool shouldVerify = false;
         bool timeGates = false;
         bool baselineQubitZero = false;
+        bool q8PairSwizzle = false;
         bool countProvided = false;
         QubitOrder qubitOrder = QubitOrder::Ascending;
         for (int i = 1; i < argc; ++i) {
@@ -103,6 +104,8 @@ int main(int argc, char** argv) {
                     if (value == 0) throw std::runtime_error("--max-blocks must be positive");
                     maxBlocks = static_cast<unsigned int>(value);
                 }
+            } else if (argument == "--q8-pair-swizzle" && !q8PairSwizzle) {
+                q8PairSwizzle = true;
             } else if (argument == "--baseline-q0" && !baselineQubitZero) {
                 baselineQubitZero = true;
             } else if (argument == "--time-gates" && !timeGates) {
@@ -133,7 +136,7 @@ int main(int argc, char** argv) {
                 qubits = static_cast<unsigned int>(value);
                 countProvided = true;
             } else {
-                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--qubit-order ascending|descending] [--verify] [--time-gates] [--baseline-q0] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
+                throw std::runtime_error("Usage: cuda_state_vector [qubits] [--repetitions M] [--qubit-order ascending|descending] [--verify] [--time-gates] [--baseline-q0] [--q8-pair-swizzle] [--block-size 64|128|256] [--warmup M] [--max-blocks M]");
             }
         }
 
@@ -202,6 +205,9 @@ int main(int argc, char** argv) {
                 if (qubit == 0 && !baselineQubitZero && qubits >= 5) {
                     hadamardQubitZero<<<q0Grid, blockSize, 0, resources.stream>>>(
                         resources.state, amplitudes);
+                } else if (useQ8PairSwizzle(q8PairSwizzle, qubit, qubits)) {
+                    hadamard<true><<<grid, blockSize, 0, resources.stream>>>(
+                        resources.state, pairs, qubit);
                 } else {
                     hadamard<<<grid, blockSize, 0, resources.stream>>>(resources.state, pairs, qubit);
                 }

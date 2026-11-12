@@ -4,6 +4,36 @@
 #include <vector>
 
 int main() {
+    for (unsigned n = 1; n <= 12; ++n)
+        for (unsigned q = 0; q < n; ++q) {
+            assert(!useQ8PairSwizzle(false, q, n));
+            assert(useQ8PairSwizzle(true, q, n) == (q == 8 && n >= 10));
+        }
+    for (unsigned n = 10; n <= 16; ++n) {
+        const Index pairs = Index{1} << (n - 1);
+        for (unsigned block : {64u, 128u, 256u}) {
+            for (unsigned cap : {1u, 2u, 3u, 2147483647u}) {
+                const Index stride = Index{gridFor(pairs, block, cap)} * block;
+                std::vector<unsigned> visits(pairs), amplitudes(2 * pairs);
+                for (Index thread = 0; thread < stride; ++thread) {
+                    for (Index p = thread; p < pairs; p += stride) {
+                        const Index mapped = swizzleQ8Pair(p);
+                        assert(mapped < pairs);
+                        assert(swizzleQ8Pair(mapped) == p);
+                        assert((mapped & 31) == (p & 31));
+                        ++visits[mapped];
+                        const Index a = firstAmplitude(mapped, Index{1} << 8);
+                        const Index b = a | (Index{1} << 8);
+                        assert(a < 2 * pairs && b < 2 * pairs && a != b);
+                        ++amplitudes[a];
+                        ++amplitudes[b];
+                    }
+                }
+                for (auto count : visits) assert(count == 1);
+                for (auto count : amplitudes) assert(count == 1);
+            }
+        }
+    }
     for (unsigned n = 1; n <= 12; ++n) {
         const Index pairs = Index{1} << (n - 1);
         for (unsigned q = 0; q < n; ++q) {

@@ -23,12 +23,15 @@ __global__ void hadamardQubitZero(double2* state, Index amplitudes) {
     }
 }
 
+// Experimental instantiation requires q=8 and at least 512 pairs.
+template<bool Q8PairSwizzle = false>
 __global__ void hadamard(double2* state, Index pairs, unsigned int qubit) {
     const Index begin = static_cast<Index>(blockIdx.x) * blockDim.x + threadIdx.x;
     const Index stride = static_cast<Index>(gridDim.x) * blockDim.x;
     const Index bit = Index{1} << qubit;
     for (Index pair = begin; pair < pairs; pair += stride) {
-        const Index first = firstAmplitude(pair, bit);
+        const Index mappedPair = Q8PairSwizzle ? swizzleQ8Pair(pair) : pair;
+        const Index first = firstAmplitude(mappedPair, bit);
         const Index second = first | bit;
         const double2 a = state[first];
         const double2 b = state[second];
